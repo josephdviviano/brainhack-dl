@@ -3,6 +3,12 @@ brainhack deep learning 2019
 
 Course materials for the brainhack 2019 deep learning course.
 
+Online Resources
+----------------
++ https://brainhack101.github.io/IntroDL/
++ https://colab.research.google.com/github/brainhack101/IntroDL/blob/master/notebooks/2019/Rokem/2019_Rokem_OHBM_IntroDL.ipynb
+
+
 Theory
 ------
 
