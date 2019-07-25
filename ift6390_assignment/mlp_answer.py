@@ -205,21 +205,21 @@ class MLP:
         return(mbs)
 
     def _softmax(self, X):
-        """Numerically stable softmax."""
+        """numerically stable softmax"""
         exps = np.exp(X - np.max(X, axis=1).reshape(-1, 1))
         return(exps / np.sum(exps, axis=1).reshape(-1, 1))
 
     def _softmax_backward(self, y_hat, y):
-        """Backprop of softmax."""
+        """backprop of softmax"""
         y_one = self.onehot.fit_transform(y.reshape(-1,1))
         return(y_hat - y_one)
 
     def _relu(self, n):
-        """Calculates rectifier activation for all elements of n."""
+        """calculates rectifier activation for all elements of n"""
         return(np.maximum(np.zeros(n.shape), n))
 
     def _relu_backward(self, z):
-        """If previous layer pre-activated vals were <= 0, also set z to 0."""
+        """if previous layer pre-activated vals were <= 0, also set z to 0"""
         z[z <= 0] = 0
         z[z > 0] = 1
         return(z)
@@ -245,13 +245,36 @@ class MLP:
     def fprop(self, X, train=True):
         """take inputs, and push them through to produce a prediction y"""
 
-        ha = X.dot(self.W1) + self.b1
-        hs = self._relu(ha)
-        oa = hs.dot(self.W2) + self.b2
-        os = self._softmax(oa) # this is y_hat
+        if self.stupid_loop:
+
+            all_ha, all_hs, all_oa, all_os = [], [], [], []
+
+            for x in X:
+                x = x.reshape(1,-1)  # reshape so that dimensions are kosher
+
+                ha_sing = x.dot(self.W1) + self.b1;      all_ha.append(ha_sing)
+                hs_sing= self._relu(ha_sing);            all_hs.append(hs_sing)
+                oa_sing= hs_sing.dot(self.W2) + self.b2; all_oa.append(oa_sing)
+                os_sing = self._softmax(oa_sing);        all_os.append(os_sing)
+
+            ha = np.vstack(all_ha) # stack for compatibility with non-loop
+            hs = np.vstack(all_hs) #
+            oa = np.vstack(all_oa) #
+            os = np.vstack(all_os) #
+
+        else:
+            ha = X.dot(self.W1) + self.b1
+            hs = self._relu(ha)
+            oa = hs.dot(self.W2) + self.b2
+            os = self._softmax(oa) # this is y_hat
 
         assert(ha.shape == (X.shape[0], self.W1.shape[1]))
         assert(os.shape == (hs.shape[0], self.W2.shape[1]))
+
+        #print('fprop 1 -- ha {} :: X.dot(W1) = {} . {}'.format(
+        #    ha.shape, X.shape, self.W1.shape))
+        #print('fprop 2 -- oa {} :: hs.dot(W2) = {} . {}'.format(
+        #    os.shape, hs.shape, self.W2.shape))
 
         if train == True:
             self.ha, self.hs, self.oa, self.os = ha, hs, oa, os
@@ -263,23 +286,68 @@ class MLP:
         backpropogate error between y_hat and y to update all parameters
         dL_b and dL_W are both normalized by batch size
         """
-        # NB: divide gradients by self.this_k here!
-        # gradients for output --> hidden layer
-        dL_oa = self._softmax_backward(y_hat, y)          # act wrt err
-        dL_hs = self.W2.dot(dL_oa.T)                      # prev_activations
-        self.dL_W2 = self.hs.T.dot(dL_oa) / self.this_k   # weights wrt err
-        self.dL_b2 = np.sum(dL_oa, axis=0) / self.this_k  # bias wrt error
+        if self.stupid_loop:
 
-        # gradients for hidden --> input layer
-        dhs_ha = self._relu_backward(self.ha)             # act wrt error
-        dL_ha  = dhs_ha * dL_hs.T                         # pre/post act
-        self.dL_W1  = X.T.dot(dL_ha) / self.this_k        # weights wrt err
-        self.dL_b1  = np.sum(dL_ha, axis=0) / self.this_k # bias wrt err
+            all_dL_W1, all_dL_b1, all_dL_W2, all_dL_b2 = [], [], [], []
+
+            y = y.reshape(-1,1) # used for k=1 case
+            for i, (x, y_hat_1, y_1) in enumerate(zip(X, y_hat, y)):
+
+                x = x.reshape(1,-1)  # reshape so that dimensions are kosher
+
+                # gradients for output --> hidden layer
+                dL_oa = self._softmax_backward(y_hat_1, y_1)
+                dL_hs = self.W2.dot(dL_oa.T)
+                hs_sing = self.hs[i, :].reshape(1, -1)
+                dL_W2_sing = hs_sing.T.dot(dL_oa)
+                dL_b2_sing = dL_oa
+
+                all_dL_W2.append(dL_W2_sing)
+                all_dL_b2.append(dL_b2_sing)
+
+                # gradients for hidden --> input layer
+                ha_sing = self.ha[i, :].reshape(1, -1)
+                dhs_ha = self._relu_backward(ha_sing)
+                dL_ha  = dhs_ha * dL_hs.T
+                dL_W1_sing = x.T.dot(dL_ha)
+                dL_b1_sing = dL_ha
+
+                all_dL_W1.append(dL_W1_sing)
+                all_dL_b1.append(dL_b1_sing)
+
+            # NB: instead of dividing by self.this_k, just take the mean
+            self.dL_W2 = np.mean(np.stack(all_dL_W2, axis=2), axis=2)
+            self.dL_b2 = np.mean(np.stack(all_dL_b2, axis=2), axis=2).ravel()
+            self.dL_W1 = np.mean(np.stack(all_dL_W1, axis=2), axis=2)
+            self.dL_b1 = np.mean(np.stack(all_dL_b1, axis=2), axis=2).ravel()
+
+        else:
+            # NB: divide gradients by self.this_k here!
+            # gradients for output --> hidden layer
+            dL_oa = self._softmax_backward(y_hat, y)          # act wrt err
+            dL_hs = self.W2.dot(dL_oa.T)                      # prev_activations
+            self.dL_W2 = self.hs.T.dot(dL_oa) / self.this_k   # weights wrt err
+            self.dL_b2 = np.sum(dL_oa, axis=0) / self.this_k  # bias wrt error
+
+            # gradients for hidden --> input layer
+            dhs_ha = self._relu_backward(self.ha)             # act wrt error
+            dL_ha  = dhs_ha * dL_hs.T                         # pre/post act
+            self.dL_W1  = X.T.dot(dL_ha) / self.this_k        # weights wrt err
+            self.dL_b1  = np.sum(dL_ha, axis=0) / self.this_k # bias wrt err
 
         assert(self.dL_W2.shape == self.W2.shape)
         assert(self.dL_W1.shape == self.W1.shape)
         assert(self.dL_b1.shape == self.b1.shape)
         assert(self.dL_b2.shape == self.b2.shape)
+
+        #print('bprop 2 -- dL_hs {} :: W2.dot(dL_oa) = {} . {}'.format(
+        #    dL_hs.shape, self.W2.shape, dL_oa.T.shape))
+        #print('bprop 2 -- dL_W2 {} :: hs.T.dot(dL_oa) = {} . {}'.format(
+        #    self.dL_W2.shape, self.hs.T.shape, dL_oa.shape))
+        #print('bprop 1 -- dL_ha {} :: dhs_ha*dL_hs.T = {} * {}'.format(
+        #    dL_ha.shape, dhs_ha.shape, dL_hs.T.shape))
+        #print('bprop 1 -- dL_W1 {} :: X.T.dot(dL_ha) = {} . {}'.format(
+        #    self.dL_W2.shape, X.T.shape, dL_ha.shape))
 
         # calculate regularization
         reg_l11 = self.l1 * np.sign(self.W1)
@@ -411,10 +479,11 @@ class MLP:
         if self.minibatch == False:
            self.k = X.shape[0]
 
-        # Split data into minibatches (incl. stochastic and batch case).
+        # split data into minibatches (incl. stochastic and batch case)
         minibatches = self._get_minibatches(X)
 
-        total_acc, total_loss = 0, 0
+        total_acc = 0
+        total_loss = 0
 
         for j, batch in enumerate(minibatches):
             total_acc += self.accuracy(X[batch, :], y[batch])
@@ -427,7 +496,7 @@ class MLP:
 
     def train(self, data):
 
-        results = {'loss':     {'train': [], 'valid': [], 'test': []},
+        results = {'loss':{'train': [], 'valid' : [], 'test': []},
                    'accuracy': {'train': [], 'valid': [], 'test': []}
         }
 
@@ -436,7 +505,7 @@ class MLP:
 
         for i in range(self.epochs):
 
-            # Handles batch gradient descent.
+            # batch gradient descent
             if self.minibatch == False:
                self.k = X.shape[0]
 
@@ -475,30 +544,41 @@ class MLP:
 
 def exp1():
     """
-    Compare gradients of SGD, minibatch SGD, and batch GD. Also, note
-    execution time.
+    As a beginning, start with an implementation that computes the gradients
+    for a single example, and check that the gradient is correct using the
+    finite difference method described above. Display the gradients for both
+    methods (direct computation and finite difference) for a small network (e.g.
+    d = 2 and d_h = 2) with random weights and for a single example.
     """
     data = get_circles_data()
-
-    mlp = MLP(n_i=2, n_h=2, n_o=2, lr=5e-6, epochs=1, k=1)
+    mlp = MLP(n_i=2, n_h=2, n_o=2, lr=5e-6, epochs=1, k=10, stupid_loop=True)
     mlp.train(data)
-    mlp.grad_check(data['X']['train'][1, :], data['y']['train'][1],
-        'stochastic gradient descent')
-
-    mlp = MLP(n_i=2, n_h=2, n_o=2, lr=5e-6, epochs=1, k=100)
-    mlp.train(data)
-    mlp.grad_check(data['X']['train'][:10, :], data['y']['train'][:10],
-        'minibatch stochastic gradient descent')
-
-    mlp = MLP(n_i=2, n_h=2, n_o=2, lr=5e-6, epochs=1, k=-1)
-    mlp.train(data)
-    mlp.grad_check(data['X']['train'][:10, :], data['y']['train'][:10],
-        'batch gradient descent')
+    mlp.grad_check(data['X']['train'][:10, :], data['y']['train'][:10], 'first-check')
 
 
 def exp2():
     """
-    Two circles: grid search showing effect on decision bondary, capacity.
+    Add a hyperparameter for the minibatch size K to allow compute the
+    gradients on a minibatch of K examples (in a matrix), by looping over
+    the K examples (this is a small addition to your previous code).
+
+    Display the gradients for both methods (direct computation and finite
+    difference) for a small network (e.g. d = 2 and d h = 2) with random
+    weights and for a minibatch with 10 examples (you can use examples from
+    both classes from the two circles dataset).
+    """
+    data = get_circles_data()
+    mlp = MLP(n_i=2, n_h=2, n_o=2, lr=5e-6, epochs=1, k=100, stupid_loop=True)
+    mlp.train(data)
+    mlp.grad_check(data['X']['train'][:10, :], data['y']['train'][:10], 'loop-added')
+
+
+def exp3():
+    """
+    Train your neural network using gradient descent on the two circles data-
+    set. Plot the decision regions for several different values of the hyperpa-
+    rameters (weight decay, number of hidden units, early stopping) so as to
+    illustrate their effect on the capacity of the model.
     """
     data = get_circles_data()
 
@@ -519,14 +599,58 @@ def exp2():
                         mlp.plot_decision(data['X']['train'], data['y']['train'])
 
 
-def exp3():
+def exp4():
     """
-    Plot accuracy and average loss per epoch for train / valid / test.
-    Hyperparameter selection is up to you. You should be able to get less than
-    20% test error.
+    Compare both implementations (with a loop and with matrix calculus)
+    to check that they both give the same values for the gradients on the
+    parameters, first for K = 1, then for K = 10. Display the gradients for
+    both methods.
+    """
+    data = get_circles_data()
+
+    t1 = time.time()
+    mlp = MLP(n_i=2, n_h=10, n_o=2, lr=5e-6, epochs=1, k=100)
+    results = mlp.train(data)
+    mlp.grad_check(data['X']['train'][1, :], data['y']['train'][1], 'MATRIX')
+    print('{} seconds for MATRIX w/ batchsize=100'.format(time.time()-t1))
+
+    t1 = time.time()
+    mlp = MLP(n_i=2, n_h=10, n_o=2, lr=5e-6, epochs=1, k=10)
+    results = mlp.train(data)
+    mlp.grad_check(data['X']['train'][:10, :], data['y']['train'][:10], 'MATRIX')
+    print('{} seconds for MATRIX w/ batchsize=10'.format(time.time()-t1))
+
+    t1 = time.time()
+    mlp = MLP(n_i=2, n_h=10, n_o=2, lr=5e-6, epochs=1, k=100, stupid_loop=True)
+    results = mlp.train(data)
+    mlp.grad_check(data['X']['train'][1, :], data['y']['train'][1], 'LOOP')
+    print('{} seconds for LOOP w/ batchsize=100'.format(time.time()-t1))
+
+    t1 = time.time()
+    mlp = MLP(n_i=2, n_h=10, n_o=2, lr=5e-6, epochs=1, k=10, stupid_loop=True)
+    results = mlp.train(data)
+    mlp.grad_check(data['X']['train'][:10, :], data['y']['train'][:10], 'LOOP')
+    print('{} seconds for LOOP w/ batchsize=10'.format(time.time()-t1))
+
+
+def exp5():
+    """
+    Adapt your code to compute the error (proportion of misclassified examples)
+    on the training set as well as the total loss on the training set during
+    each epoch of the training procedure, and at the end of each epoch, it
+    computes the error and average loss on the validation set and the test set.
+    Display the 6 corresponding figures (error and average loss on
+    train/valid/test), and write them in a log file. Train your network on the
+    fashion MNIST dataset. Plot the training/valid/test curves (error and loss
+    as a function of the epoch number, corresponding to what you wrote in a file
+    in the last question). Add to your report the curves obtained using your
+    best hyperparameters, i.e. for which you obtained your best error on the
+    validation set. We suggest 2 plots : the first one will plot the error rate
+    (train/valid/test with different colors, show which color in a legend) and
+    the other one for the averaged loss (on train/valid/test). You should be
+    able to get less than 20% test error.
     """
     data = load_pickle('data/fashion_mnist.pkl')
-
     options = {'k': 256, 'l11': 0, 'l12': 0.001, 'l21': 0, 'l22': 0.001}
     mlp = MLP(n_i=784, n_h=50, n_o=10, lr=10e-03, epochs=5, **options)
     results = mlp.train(data)
@@ -547,9 +671,35 @@ def exp3():
     plt.tight_layout()
     plt.savefig('img/mnist_learning curves.jpg')
 
+def opt1():
+    """
+    Time how long takes an epoch on fashion MNIST (1 epoch = 1 full tra-
+    versal through the whole training set) for K = 100 for both versions (loop
+    over a minibatch and matrix calculus).
+    """
+    make_mnist_proc('data/fashion_mnist.pkl')
+    data = load_pickle('data/fashion_mnist.pkl')
+
+    t = time.time()
+    mlp = MLP(n_i=784, n_h=10, n_o=10, lr=10e-03, epochs=1, k=100)
+    results = mlp.train(data)
+    elapsed_vector = time.time() - t
+
+    t = time.time()
+    mlp = MLP(n_i=784, n_h=10, n_o=10, lr=10e-03, epochs=1, k=100, stupid_loop=True)
+    results = mlp.train(data)
+    elapsed_loop = time.time() - t
+
+    print('FASHION MNIST VECTOR time={}, LOOP time={}'.format(
+        elapsed_vector, elapsed_loop))
+
 
 if __name__ == '__main__':
 
-    exp1() # Gradient checking / execution time of SGD, minibatch SGD, GD.
-    exp2() # Effects of network parameters and regularizers on network capacity.
-    exp3() # Experiment tracking (plotting of loss / accuracy curves).
+    #exp1() # LOOP gradient checking, and plot for k=10
+    #exp2() # LOOP gradient checking, and plot for k=100
+    #exp3() # LOOP 2 show decision boundary
+    #exp4() # gradient check compare LOOP and VECTOR implementation
+    exp5() # plots of train/valid/test error on MNIST
+
+    #opt1() # time LOOP vs VECTOR implementation, K=100
