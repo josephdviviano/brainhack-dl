@@ -1,9 +1,0 @@
-- [ ] Standardize input data.
-- [ ] Weight initialization.
-- [ ] Forward propagation.
-- [ ] Backpropagation (?).
-- [ ] Implement training loop (split data appropriately, keep track of results).
-- [ ] Batch vs minibatch training.
-- [ ] Gradient checking.
-- [ ] Effect of network parameters / regularization on network capacity.
-- [ ] Experiment tracking on train / valid / test.

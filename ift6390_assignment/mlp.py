@@ -1,5 +1,17 @@
 #!/usr/bin/env python
 """
+TODO:
+
+- [x] Standardize input data.
+- [x] Weight initialization.
+- [x] Forward propagation.
+- [x] Backpropagation (?) -- will need a lot of clues...
+- [x] Implement training loop (split data appropriately, keep track of results).
+- [x] Batch vs minibatch training.
+- [x] Gradient checking.
+- [x] Effect of network parameters / regularization on network capacity.
+- [x] Experiment tracking on train / valid / test.
+
 implement a neural network where you compute the gradients using the formulas
 derived in the previous part (including elastic net regularization). You must
 not use an existing neural network library, and you must use the derivation of
@@ -19,33 +31,6 @@ import time
 import warnings
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
-
-class Normalizer:
-    def __init__(self):
-        self.mean = 0
-        self.std = 0
-
-    def normalize(self, X, train=True):
-        """normalizes an sample x to have 0 mean and unit standard deviation."""
-        if train:
-            self.mean = np.mean(X)
-            self.std = np.mean(X)
-
-        return (X - self.mean)/self.std
-
-
-class Scaler:
-    def __init__(self):
-        self.minimum = 0
-        self.maximum = 1
-
-    def scale(self, X, train=True):
-        """scales sample x to be in range [0 1]."""
-        if train:
-            self.minimum = np.min(X)
-            self.maximum = np.max(X)
-
-        return (X - self.minimum)/(self.maximum - self.minimum)*2 - 1
 
 
 def load_pickle(filename):
@@ -84,10 +69,7 @@ def make_mnist_proc(output):
     y_valid = y_train[split:]
     y_train = y_train[:split]
 
-    norm_buddy = Normalizer()
-    X_train = norm_buddy.normalize(X_train)
-    X_valid = norm_buddy.normalize(X_valid, train=False)
-    X_test  = norm_buddy.normalize(X_test, train=False)
+    # NORMALIZE DATA HERE
 
     data = {"X": {"train": X_train, "valid": X_valid, "test": X_test},
             "y": {"train": y_train, "valid": y_valid, "test": y_test}}
@@ -174,10 +156,10 @@ class MLP:
                    [self.dL_W1, self.dL_W2, self.dL_b1, self.dL_b2]))
 
     def _init_W(self, n_in, n_out):
-        """initializes weight matrix using glorot initialization"""
+        """Initializes weight matrix."""
         # Sample weights uniformly from [-1/sqrt(in), 1/np.sqrt(in)].
-        bound = 1/np.sqrt(n_in)
-        return(np.random.uniform(low=-bound, high=bound, size=(n_in, n_out)))
+        W = None
+        return(W)
 
     def _get_minibatches(self, X, shuffle=True):
         """use the number of samples in X and k to determine the batch size"""
@@ -245,10 +227,10 @@ class MLP:
     def fprop(self, X, train=True):
         """take inputs, and push them through to produce a prediction y"""
 
-        ha = X.dot(self.W1) + self.b1
-        hs = self._relu(ha)
-        oa = hs.dot(self.W2) + self.b2
-        os = self._softmax(oa) # this is y_hat
+        ha = None  # hidden layer pre-activations
+        hs = None  # hidden layer activations
+        oa = None  # output pre-activations
+        os = None  # this is y_hat
 
         assert(ha.shape == (X.shape[0], self.W1.shape[1]))
         assert(os.shape == (hs.shape[0], self.W2.shape[1]))
@@ -265,16 +247,16 @@ class MLP:
         """
         # NB: divide gradients by self.this_k here!
         # gradients for output --> hidden layer
-        dL_oa = self._softmax_backward(y_hat, y)          # act wrt err
-        dL_hs = self.W2.dot(dL_oa.T)                      # prev_activations
-        self.dL_W2 = self.hs.T.dot(dL_oa) / self.this_k   # weights wrt err
-        self.dL_b2 = np.sum(dL_oa, axis=0) / self.this_k  # bias wrt error
+        dL_oa = None  # act wrt err
+        dL_hs = None  # prev_activations
+        self.dL_W2 = None  # weights wrt err
+        self.dL_b2 = None  # bias wrt error
 
         # gradients for hidden --> input layer
-        dhs_ha = self._relu_backward(self.ha)             # act wrt error
-        dL_ha  = dhs_ha * dL_hs.T                         # pre/post act
-        self.dL_W1  = X.T.dot(dL_ha) / self.this_k        # weights wrt err
-        self.dL_b1  = np.sum(dL_ha, axis=0) / self.this_k # bias wrt err
+        dhs_ha = None  # act wrt error
+        dL_ha  = None  # pre/post act
+        self.dL_W1  = None  # weights wrt err
+        self.dL_b1  = None  # bias wrt err
 
         assert(self.dL_W2.shape == self.W2.shape)
         assert(self.dL_W1.shape == self.W1.shape)
@@ -282,17 +264,16 @@ class MLP:
         assert(self.dL_b2.shape == self.b2.shape)
 
         # calculate regularization
-        reg_l11 = self.l1 * np.sign(self.W1)
-        reg_l21 = self.l1 * np.sign(self.W2)
-        reg_l12 = self.l2 * 2 * self.W1
-        reg_l22 = self.l2 * 2 * self.W2
+        reg_l11 = self.l1 * np.sign(self.W1)  # derivative of abs(x) = sign(x)
+        reg_l21 = self.l1 * np.sign(self.W2)  #
+        reg_l12 = self.l2 * 2 * self.W1       # derivative of x**2 = 2x
+        reg_l22 = self.l2 * 2 * self.W2       #
 
         # update all parameters via gradient descent with regularization
-        self.W1 -= self.lr * (self.dL_W1 + reg_l11 + reg_l12)
-        self.W2 -= self.lr * (self.dL_W2 + reg_l21 + reg_l22)
-        self.b1 -= self.lr *  self.dL_b1
-        self.b2 -= self.lr *  self.dL_b2
-
+        self.W1 -= None
+        self.W2 -= None
+        self.b1 -= None
+        self.b2 -= None
 
     def predict(self, X):
         y_hat = self.fprop(X, train=False)
@@ -431,8 +412,9 @@ class MLP:
                    'accuracy': {'train': [], 'valid': [], 'test': []}
         }
 
-        X = data['X']['train']
-        y = data['y']['train']
+        # Training data.
+        X = None
+        y = None
 
         for i in range(self.epochs):
 
@@ -443,19 +425,20 @@ class MLP:
             # split data into minibatches (incl. stochastic and batch case)
             minibatches = self._get_minibatches(X)
 
+            # TRAIN THE MODEL HERE
             for j, batch in enumerate(minibatches):
                 self.this_k = len(batch)
-                y_hat = self.fprop(X[batch, :], train=True)
-                self.bprop(X[batch, :], y_hat, y[batch])
-                acc_train, loss_train = self.eval(X, y)
+                y_hat = None
+                self.bprop(None, None, None)
+                acc_train, loss_train = self.eval(None, None)
 
                 if j % 25 == 0:
                     print('TRAIN [epoch {}: batch {}/{}]: accuracy={}, loss={}'.format(
                         i+1, j+1, len(minibatches), acc_train, loss_train))
 
-            # train accuracy & loss per epoch
-            acc_valid, loss_valid = self.eval(data['X']['valid'], data['y']['valid'])
-            acc_test, loss_test = self.eval(data['X']['test'], data['y']['test'])
+            # EVALUATE THE MODEL HERE
+            acc_valid, loss_valid = self.eval(None)
+            acc_test, loss_test = self.eval(None)
 
             print('VALID [epoch {}: batch {}/{}]: accuracy={}, loss={}'.format(
                 i+1, j+1, len(minibatches), acc_valid, loss_valid))
@@ -502,21 +485,11 @@ def exp2():
     """
     data = get_circles_data()
 
-    n_hs = [5, 100]
-    lrs = [5e-2, 5e-3]
-    l1s = [0, 0.01]
-    l2s = [0, 0.01]
-    epochs = [25, 100]
-
-    # a stupid way to do grid search
-    for n_h in n_hs:
-        for lr in lrs:
-            for l1 in l1s:
-                for l2 in l2s:
-                    for epoch in epochs:
-                        mlp = MLP(n_i=2, n_o=2, n_h=n_h, lr=lr, l1=l1, l2=l2, epochs=epoch, k=100)
-                        results = mlp.train(data)
-                        mlp.plot_decision(data['X']['train'], data['y']['train'])
+    options = {'n_h': 2, 'lr': 10e-3, epochs: 5, 'k': 256,
+               'l11': 0, 'l12': 0.001, 'l21': 0, 'l22': 0.001}
+    mlp = MLP(n_i=2, n_o=2, **options)
+    results = mlp.train(data)
+    mlp.plot_decision(data['X']['train'], data['y']['train'])
 
 
 def exp3():
@@ -527,26 +500,12 @@ def exp3():
     """
     data = load_pickle('data/fashion_mnist.pkl')
 
-    options = {'k': 256, 'l11': 0, 'l12': 0.001, 'l21': 0, 'l22': 0.001}
-    mlp = MLP(n_i=784, n_h=50, n_o=10, lr=10e-03, epochs=5, **options)
+    options = {'n_h': 10, 'lr'=10e-2, 'epochs': 5, 'k': 256,
+               'l11': 0, 'l12': 0, 'l21': 0, 'l22': 0.001}
+    mlp = MLP(n_i=784, n_o=10, **options)
     results = mlp.train(data)
 
-    i = 0
-    plt.figure(1)
-    plots = [231, 232, 233, 234, 235, 236]
-    for result_type in results.keys():
-        for trial_type in results[result_type].keys():
-            plt.subplot(plots[i])
-            plt.plot(results[result_type][trial_type],
-                label='{} {}'.format(result_type, trial_type))
-            plt.ylabel(result_type)
-            plt.xlabel('epoch')
-            plt.title(trial_type)
-            i += 1
-
-    plt.tight_layout()
-    plt.savefig('img/mnist_learning curves.jpg')
-
+    # Plotting here
 
 if __name__ == '__main__':
 
