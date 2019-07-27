@@ -1,24 +1,4 @@
 #!/usr/bin/env python
-"""
-TODO:
-
-- [x] Standardize input data.
-- [x] Weight initialization.
-- [x] Forward propagation.
-- [x] Backpropagation (?) -- will need a lot of clues...
-- [x] Implement training loop (split data appropriately, keep track of results).
-- [x] Batch vs minibatch training.
-- [x] Gradient checking.
-- [x] Effect of network parameters / regularization on network capacity.
-- [x] Experiment tracking on train / valid / test.
-
-implement a neural network where you compute the gradients using the formulas
-derived in the previous part (including elastic net regularization). You must
-not use an existing neural network library, and you must use the derivation of
-part 2 (with corresponding variable names, etc). Note that you can reuse the
-general learning algorithm structure that we used in the demos, as well as the
-functions used to plot the decision functions.
-"""
 from copy import copy
 from sklearn.preprocessing import OneHotEncoder
 import gzip
@@ -39,8 +19,9 @@ def load_pickle(filename):
 
     return(data)
 
+
 def load_mnist_raw(path, kind='train'):
-    """Load Fashion MNIST data from path"""
+    """Load Fashion MNIST data from path."""
     labels_path = os.path.join(path, '%s-labels-idx1-ubyte.gz' % kind)
     images_path = os.path.join(path, '%s-images-idx3-ubyte.gz' % kind)
 
@@ -54,8 +35,27 @@ def load_mnist_raw(path, kind='train'):
     return(images, labels)
 
 
-def make_mnist_proc(output):
+def get_circles_data():
+    """Loads circles data. A simple dataset."""
+    data = np.loadtxt(open('data/circles.txt','r'))
+    X = data[:, :2]
+    y = data[:, 2]
 
+    X_train = X[:800, :]
+    X_valid = X[800:950, :]
+    X_test  = X[950:, :]
+    y_train = y[:800]
+    y_valid = y[800:950]
+    y_test  = y[950:]
+
+    data = {"X": {"train": X_train, "valid": X_valid, "test": X_test},
+            "y": {"train": y_train, "valid": y_valid, "test": y_test}}
+
+    return(data)
+
+
+def make_mnist_proc(output):
+    """Make a preprocessed version of fashion MNIST data."""
     if os.path.isfile(output):
         print('preprocessed MNIST already exists, skipping preprocessing')
         return(None)
@@ -77,24 +77,6 @@ def make_mnist_proc(output):
     print('saving preprocessed MNIST data at {}'.format(output))
     with open(output, 'wb') as f:
         pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
-
-
-def get_circles_data():
-    data = np.loadtxt(open('data/circles.txt','r'))
-    X = data[:, :2]
-    y = data[:, 2]
-
-    X_train = X[:800, :]
-    X_valid = X[800:950, :]
-    X_test  = X[950:, :]
-    y_train = y[:800]
-    y_valid = y[800:950]
-    y_test  = y[950:]
-
-    data = {"X": {"train": X_train, "valid": X_valid, "test": X_test},
-            "y": {"train": y_train, "valid": y_valid, "test": y_test}}
-
-    return(data)
 
 
 class MLP:
@@ -157,7 +139,8 @@ class MLP:
 
     def _init_W(self, n_in, n_out):
         """Initializes weight matrix."""
-        # Sample weights uniformly from [-1/sqrt(in), 1/np.sqrt(in)].
+        # Xavier initialization (pros only): sample weights uniformly from
+        # [-1/sqrt(n_previous_layer), 1/np.sqrt(n_previous_layer)].
         W = None
         return(W)
 
@@ -485,7 +468,7 @@ def exp2():
     """
     data = get_circles_data()
 
-    options = {'n_h': 2, 'lr': 10e-3, epochs: 5, 'k': 256,
+    options = {'n_h': 3, 'lr': 10e-3, epochs: 5, 'k': 256,
                'l11': 0, 'l12': 0.001, 'l21': 0, 'l22': 0.001}
     mlp = MLP(n_i=2, n_o=2, **options)
     results = mlp.train(data)
@@ -500,7 +483,7 @@ def exp3():
     """
     data = load_pickle('data/fashion_mnist.pkl')
 
-    options = {'n_h': 10, 'lr'=10e-2, 'epochs': 5, 'k': 256,
+    options = {'n_h': 10, 'lr': 10e-2, 'epochs': 5, 'k': 256,
                'l11': 0, 'l12': 0, 'l21': 0, 'l22': 0.001}
     mlp = MLP(n_i=784, n_o=10, **options)
     results = mlp.train(data)
